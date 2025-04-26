@@ -11,6 +11,7 @@ import numpy as np
 from TSPClasses import *
 import heapq
 import itertools
+from random import randint
 
 class TSPSolver:
     def __init__(self, gui_view):
@@ -185,5 +186,147 @@ class TSPSolver:
             'pruned': pruned_states
         }
 
+
+
+
+    INT_MAX = 2147483647
+    numberOfCities = 5
+    populationSize = 10
+    # genetic algorithm
     def fancy(self, time_allowance=60.0):
-        pass
+        solutions_found = 0
+        total_individuals = 0
+
+        citys = self._scenario.getCities()
+        self.numberOfCities = len(citys)
+
+        generationNum = 1
+        #  update this number to increase the number of generations and get a better solution
+        geneIterations = 50
+        population = []
+        
+        # Populate the gnome pool
+        for i in range(self.populationSize):
+            temp = individual()
+            temp.gnome = self.create_gnome()
+            temp.fitness = self.calculate_fitness(temp.gnome)
+            population.append(temp)
+        
+        found = False
+        temperature = 10000
+
+        start_time = time.time()
+        while generationNum <= geneIterations and time.time() - start_time < time_allowance:
+            population.sort()
+            newPopulation = []
+
+            for i in range(self.populationSize):
+                p1 = population[i]
+
+                while True:
+                    newG = self.mutatedGene(p1.gnome)
+                    newGnome = individual()
+                    newGnome.gnome = newG
+                    newGnome.fitness = self.calculate_fitness(newGnome.gnome)
+                    total_individuals += 1
+
+                    if newGnome.fitness < population[i].fitness:
+                        newPopulation.append(newGnome)
+                        solutions_found += 1  # found a better solution
+                        break
+                    else:
+                        prob = pow(2.7, -1 * (float(newGnome.fitness - population[i].fitness) / temperature))
+                        if prob > 0.5:
+                            newPopulation.append(newGnome)
+                            break
+
+            temperature = self.cooldown(temperature)
+            population = newPopulation
+            generationNum += 1
+
+        # Pick the best individual
+        best = min(population, key=lambda ind: ind.fitness)
+
+        route = [citys[idx] for idx in best.gnome[:-1]]
+
+        # create TSPSolution
+        bssf = TSPSolution(route)
+
+        end_time = time.time()
+
+        results = {}
+        results['cost'] = bssf.cost
+        results['time'] = end_time - start_time
+        results['count'] = solutions_found
+        results['soln'] = bssf
+        results['max'] = self.populationSize
+        results['total'] = total_individuals
+        results['pruned'] = None # you do not prune in genetic algorithm
+
+        return results
+
+
+
+    # helper functions
+    def mutatedGene(self, gnome):
+        gnome = gnome.copy()
+        while True:
+            r = self.rand_num(1, self.numberOfCities) - 1
+            r1 = self.rand_num(1, self.numberOfCities) - 1
+            if r != r1:
+                gnome[r], gnome[r1] = gnome[r1], gnome[r]
+                break
+        return gnome
+
+
+
+    def rand_num(self, start, end):
+        return randint(start, end-1)
+    
+    def create_gnome(self):
+        gnome = [0]
+        available = list(range(1, self.numberOfCities))
+        while available:
+            next_city = available.pop(randint(0, len(available)-1))
+            gnome.append(next_city)
+        gnome.append(0)  # to make it a complete tour
+        return gnome
+
+
+    # Function to check if the character has already occurred in the string
+    def repeat(self, s, ch):
+        for i in range(len(s)):
+            if s[i] == ch:
+                return True
+
+        return False
+    
+    # Function to return the updated value of the cooling element.
+    def cooldown(self, temp):
+        return (90 * temp) / 100
+
+    # Function to return the fitness value of a gnome. The fitness value is the path length of the path represented by the GNOME.
+    def calculate_fitness(self, gnome):
+        cities = self._scenario.getCities()
+        f = 0
+        for i in range(len(gnome) - 1):
+            c1_idx = gnome[i]
+            c2_idx = gnome[i+1]
+            cost = cities[c1_idx].costTo(cities[c2_idx])
+            if cost == np.inf:
+                return self.INT_MAX
+            f += cost
+        return f
+
+
+
+class individual:
+    def __init__(self) -> None:
+        self.gnome = ""
+        self.fitness = 0
+
+    def __lt__(self, other):
+        return self.fitness < other.fitness
+
+    def __gt__(self, other):
+        return self.fitness > other.fitness
