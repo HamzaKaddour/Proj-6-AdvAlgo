@@ -14,6 +14,7 @@ import numpy as np
 from TSPClasses import *
 import heapq
 import itertools
+from random import randint
 
 # Represents a search state in the Branch-and-Bound tree
 class State:
@@ -257,136 +258,144 @@ class TSPSolver:
         return results
 
 
+    INT_MAX = 2147483647
+    numberOfCities = 5
+    populationSize = 10
+    # genetic algorithm
     def fancy(self, time_allowance=60.0):
-        start_time = time.time()
-        cities = self._scenario.getCities()
-        ncities = len(cities)
+        solutions_found = 0
+        total_individuals = 0
 
-        pop_size = 100
-        generations = 200
-        mutation_rate = 0.1
+        citys = self._scenario.getCities()
+        self.numberOfCities = len(citys)
 
-        # Create initial population (list of tours, each as list of city indices)
-        population = self._initialize_population(cities, pop_size)
-
-        best_tour = None
-        best_cost = float('inf')
-
-        for gen in range(generations):
-            if time.time() - start_time > time_allowance:
-                break
-
-            fitness = self._evaluate_fitness(population, cities)
-            new_population = []
-
-            for _ in range(pop_size):
-                parent1 = self._tournament_selection(population, fitness)
-                parent2 = self._tournament_selection(population, fitness)
-                child = self._order_crossover(parent1, parent2)
-                self._mutate(child, mutation_rate)
-                new_population.append(child)
-
-            population = new_population
-
-            for tour in population:
-                route = [cities[i] for i in tour]
-                sol = TSPSolution(route)
-                if sol.cost < best_cost:
-                    best_tour = sol
-                    best_cost = sol.cost
-
-            # Keep best from previous gen
-            best_idx = np.argmax(fitness)
-            best_tour = population[best_idx]
-            new_population = [best_tour[:]]  # Elitism
-
-        return {
-            'cost': best_tour.cost,
-            'time': time.time() - start_time,
-            'count': 1,
-            'soln': best_tour,
-            'max': None,
-            'total': None,
-            'pruned': None
-        }
-
-    #Helper Functions for GA
-    def _initialize_population(self, cities, pop_size):
-        ncities = len(cities)
+        generationNum = 1
+        #  update this number to increase the number of generations and get a better solution
+        geneIterations = 50
         population = []
+        
+        # Populate the gnome pool
+        for i in range(self.populationSize):
+            temp = individual()
+            temp.gnome = self.create_gnome()
+            temp.fitness = self.calculate_fitness(temp.gnome)
+            population.append(temp)
+        
+        found = False
+        temperature = 10000
 
-        # Add 10% greedy tours
-        greedy_sol = self.greedy(time_allowance=1.0)['soln']
-        if greedy_sol:
-            greedy_tour = [cities.index(city) for city in greedy_sol.route]
-            for _ in range(int(pop_size * 0.1)):
-                population.append(greedy_tour[:])
+        start_time = time.time()
+        while generationNum <= geneIterations and time.time() - start_time < time_allowance:
+            population.sort()
+            newPopulation = []
 
-        # Fill the rest randomly
-        for _ in range(pop_size - len(population)):
-            tour = list(np.random.permutation(ncities))
-            population.append(tour)
-        return population
+            for i in range(self.populationSize):
+                p1 = population[i]
 
-    def _evaluate_fitness(self, population, cities):
-        fitness = []
-        for tour in population:
-            route = [cities[i] for i in tour]
-            sol = TSPSolution(route)
-            cost = sol.cost
-            fitness.append(1 / cost if cost != 0 else 0)
-        return fitness
+                while True:
+                    newG = self.mutatedGene(p1.gnome)
+                    newGnome = individual()
+                    newGnome.gnome = newG
+                    newGnome.fitness = self.calculate_fitness(newGnome.gnome)
+                    total_individuals += 1
 
-    def _tournament_selection(self, population, fitness, k=3):
-        selected = np.random.choice(len(population), k, replace=False)
-        best = selected[0]
-        for i in selected[1:]:
-            if fitness[i] > fitness[best]:
-                best = i
-        return population[best][:]
+                    if newGnome.fitness < population[i].fitness:
+                        newPopulation.append(newGnome)
+                        solutions_found += 1  # found a better solution
+                        break
+                    else:
+                        prob = pow(2.7, -1 * (float(newGnome.fitness - population[i].fitness) / temperature))
+                        if prob > 0.5:
+                            newPopulation.append(newGnome)
+                            break
 
-    def _order_crossover(self, parent1, parent2):
-        size = len(parent1)
-        child = [None] * size
+            temperature = self.cooldown(temperature)
+            population = newPopulation
+            generationNum += 1
 
-        start, end = sorted(np.random.choice(range(size), 2, replace=False))
-        child[start:end] = parent1[start:end]
+        # Pick the best individual
+        best = min(population, key=lambda ind: ind.fitness)
 
-        p2_index = end
-        c_index = end
-        while None in child:
-            if parent2[p2_index % size] not in child:
-                child[c_index % size] = parent2[p2_index % size]
-                c_index += 1
-            p2_index += 1
+        route = [citys[idx] for idx in best.gnome[:-1]]
 
-        return child
+        # create TSPSolution
+        bssf = TSPSolution(route)
 
-    def _mutate(self, tour, mutation_rate):
-        if np.random.rand() < mutation_rate:
-            i, j = np.random.choice(len(tour), 2, replace=False)
-            tour[i], tour[j] = tour[j], tour[i]
+        end_time = time.time()
+
+        results = {}
+        results['cost'] = bssf.cost
+        results['time'] = end_time - start_time
+        results['count'] = solutions_found
+        results['soln'] = bssf
+        results['max'] = self.populationSize
+        results['total'] = total_individuals
+        results['pruned'] = None # you do not prune in genetic algorithm
+
+        return results
 
 
-'''
-# Simple test for 4-city square
-if __name__ == "__main__":
-    from PyQt5.QtCore import QPointF
 
-    city_points = [QPointF(0, 0), QPointF(1, 0), QPointF(1, 1), QPointF(0, 1)]
-    scenario = Scenario(city_points, difficulty="Easy", rand_seed=42)
+    # helper functions
+    def mutatedGene(self, gnome):
+        gnome = gnome.copy()
+        while True:
+            r = self.rand_num(1, self.numberOfCities) - 1
+            r1 = self.rand_num(1, self.numberOfCities) - 1
+            if r != r1:
+                gnome[r], gnome[r1] = gnome[r1], gnome[r]
+                break
+        return gnome
 
-    solver = TSPSolver(None)
-    solver.setupWithScenario(scenario)
-    print("Running Branch and Bound on 4-city square...\n")
-    results = solver.branchAndBound(time_allowance=5.0)
 
-    print("====== Results ======")
-    print(f"Cost: {results['cost']}")
-    print(f"Time: {results['time']:.4f} seconds")
-    print(f"Solutions found: {results['count']}")
-    print(f"Max queue size: {results['max']}")
-    print(f"Total states created: {results['total']}")
-    print(f"States pruned: {results['pruned']}")
-    print(f"Tour: {[city._name for city in results['soln'].route]}")
-'''
+
+    def rand_num(self, start, end):
+        return randint(start, end-1)
+    
+    def create_gnome(self):
+        gnome = [0]
+        available = list(range(1, self.numberOfCities))
+        while available:
+            next_city = available.pop(randint(0, len(available)-1))
+            gnome.append(next_city)
+        gnome.append(0)  # to make it a complete tour
+        return gnome
+
+
+    # Function to check if the character has already occurred in the string
+    def repeat(self, s, ch):
+        for i in range(len(s)):
+            if s[i] == ch:
+                return True
+
+        return False
+    
+    # Function to return the updated value of the cooling element.
+    def cooldown(self, temp):
+        return (90 * temp) / 100
+
+    # Function to return the fitness value of a gnome. The fitness value is the path length of the path represented by the GNOME.
+    def calculate_fitness(self, gnome):
+        cities = self._scenario.getCities()
+        f = 0
+        for i in range(len(gnome) - 1):
+            c1_idx = gnome[i]
+            c2_idx = gnome[i+1]
+            cost = cities[c1_idx].costTo(cities[c2_idx])
+            if cost == np.inf:
+                return self.INT_MAX
+            f += cost
+        return f
+
+
+
+class individual:
+    def __init__(self) -> None:
+        self.gnome = ""
+        self.fitness = 0
+
+    def __lt__(self, other):
+        return self.fitness < other.fitness
+
+    def __gt__(self, other):
+        return self.fitness > other.fitness
