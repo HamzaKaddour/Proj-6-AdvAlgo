@@ -98,7 +98,7 @@ class Scenario:
 	def getCities( self ):
 		return self._cities
 
-
+	# randomly reorders a list
 	def randperm( self, n ):				#isn't there a numpy function that does this and even gets called in Solver?
 		perm = np.arange(n)
 		for i in range(n):
@@ -108,6 +108,8 @@ class Scenario:
 			perm[randind] = save
 		return perm
 
+
+	#pruning function
 	def thinEdges( self, deterministic=False ):
 		ncities = len(self._cities)
 		edge_count = ncities*(ncities-1) # can't have self-edge
