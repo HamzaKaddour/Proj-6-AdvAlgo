@@ -13,8 +13,9 @@ import time
 import numpy as np
 from TSPClasses import *
 import heapq
-import itertools
 from random import randint
+
+import itertools
 
 # Represents a search state in the Branch-and-Bound tree
 class State:
@@ -257,10 +258,10 @@ class TSPSolver:
 
         return results
 
-
     INT_MAX = 2147483647
     numberOfCities = 5
-    populationSize = 10
+    populationSize = 200
+
     # genetic algorithm
     def fancy(self, time_allowance=60.0):
         solutions_found = 0
@@ -271,28 +272,39 @@ class TSPSolver:
 
         generationNum = 1
         #  update this number to increase the number of generations and get a better solution
-        geneIterations = 50
+        geneIterations = 300
+        # New way to populate using Greedy + Random
         population = []
-        
-        # Populate the gnome pool
-        for i in range(self.populationSize):
+        citys = self._scenario.getCities()
+        initial_tours = self._initialize_population(citys, self.populationSize)
+
+        for tour in initial_tours:
             temp = individual()
-            temp.gnome = self.create_gnome()
+            temp.gnome = tour + [tour[0]]  # Ensure it returns to the start city
             temp.fitness = self.calculate_fitness(temp.gnome)
             population.append(temp)
-        
+
         found = False
         temperature = 10000
 
         start_time = time.time()
         while generationNum <= geneIterations and time.time() - start_time < time_allowance:
+            print(f"Generation {generationNum} started, temperature = {temperature:.2f}")
             population.sort()
             newPopulation = []
 
             for i in range(self.populationSize):
+                print(f"  Mutating individual {i} / {self.populationSize}")
                 p1 = population[i]
 
-                while True:
+                attempts = 0
+                max_attempts = 200  # maximum mutation attempts per individual
+
+                while attempts < max_attempts:
+                    attempts += 1
+                    if attempts % 100 == 0:
+                        print(f"    {attempts} attempts to mutate individual {i} without improvement...")
+
                     newG = self.mutatedGene(p1.gnome)
                     newGnome = individual()
                     newGnome.gnome = newG
@@ -301,13 +313,18 @@ class TSPSolver:
 
                     if newGnome.fitness < population[i].fitness:
                         newPopulation.append(newGnome)
-                        solutions_found += 1  # found a better solution
+                        solutions_found += 1
                         break
                     else:
                         prob = pow(2.7, -1 * (float(newGnome.fitness - population[i].fitness) / temperature))
                         if prob > 0.5:
                             newPopulation.append(newGnome)
                             break
+
+                # if max_attempts reached and no success, just copy the parent into next generation
+                if attempts >= max_attempts:
+                    print(f"    WARNING: Max attempts reached for individual {i}, copying parent.")
+                    newPopulation.append(p1)
 
             temperature = self.cooldown(temperature)
             population = newPopulation
@@ -330,37 +347,37 @@ class TSPSolver:
         results['soln'] = bssf
         results['max'] = self.populationSize
         results['total'] = total_individuals
-        results['pruned'] = None # you do not prune in genetic algorithm
+        results['pruned'] = None  # you do not prune in genetic algorithm
 
         return results
-
-
 
     # helper functions
     def mutatedGene(self, gnome):
         gnome = gnome.copy()
-        while True:
-            r = self.rand_num(1, self.numberOfCities) - 1
-            r1 = self.rand_num(1, self.numberOfCities) - 1
-            if r != r1:
-                gnome[r], gnome[r1] = gnome[r1], gnome[r]
-                break
+        n = len(gnome) - 1  # exclude last city (which repeats the start city)
+
+        # Pick two distinct points
+        i, j = sorted(np.random.choice(n, 2, replace=False))
+
+        # Reverse the segment between i and j
+        gnome[i:j + 1] = reversed(gnome[i:j + 1])
+
+        # Make sure it still ends with returning to start city
+        gnome[-1] = gnome[0]
+
         return gnome
 
-
-
     def rand_num(self, start, end):
-        return randint(start, end-1)
-    
+        return randint(start, end - 1)
+
     def create_gnome(self):
         gnome = [0]
         available = list(range(1, self.numberOfCities))
         while available:
-            next_city = available.pop(randint(0, len(available)-1))
+            next_city = available.pop(randint(0, len(available) - 1))
             gnome.append(next_city)
         gnome.append(0)  # to make it a complete tour
         return gnome
-
 
     # Function to check if the character has already occurred in the string
     def repeat(self, s, ch):
@@ -369,7 +386,7 @@ class TSPSolver:
                 return True
 
         return False
-    
+
     # Function to return the updated value of the cooling element.
     def cooldown(self, temp):
         return (90 * temp) / 100
@@ -380,13 +397,31 @@ class TSPSolver:
         f = 0
         for i in range(len(gnome) - 1):
             c1_idx = gnome[i]
-            c2_idx = gnome[i+1]
+            c2_idx = gnome[i + 1]
             cost = cities[c1_idx].costTo(cities[c2_idx])
             if cost == np.inf:
                 return self.INT_MAX
             f += cost
         return f
 
+    # Function to initialize a starting population with 10% greedy paths
+    def _initialize_population(self, cities, pop_size):
+        ncities = len(cities)
+        population = []
+
+        # Add 10% greedy tours
+        greedy_sol = self.greedy(time_allowance=1.0)['soln']
+        if greedy_sol:
+            greedy_tour = [cities.index(city) for city in greedy_sol.route]
+            for _ in range(int(pop_size * 0.1)):
+                population.append(greedy_tour[:])  # Copy of greedy tour
+
+        # Fill the rest with random tours
+        for _ in range(pop_size - len(population)):
+            tour = list(np.random.permutation(ncities))
+            population.append(tour)
+
+        return population
 
 
 class individual:
